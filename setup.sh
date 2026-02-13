@@ -103,6 +103,4 @@ EOF'
 
 echo -e "\n\e[32m=======================================\e[0m"
 echo -e "\e[32mУстановка завершена успешно!\e[0m"
-echo -e "Node Key: $USER_SECRET_KEY"
-echo -e "Webhook: $USER_WEBHOOK_URL"
 echo -e "\e[32m=======================================\e[0m"
