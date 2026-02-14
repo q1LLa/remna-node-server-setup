@@ -57,16 +57,22 @@ echo "--- 4. Настройка ноды и Docker Compose ---"
 sudo mkdir -p /var/log/remnanode /opt/remnanode
 COMPOSE_FILE="/opt/remnanode/docker-compose.yml"
 
-if [ -f "$COMPOSE_FILE" ]; then
-    # Проверка ключа внутри файла
-    if grep -q "SECRET_KEY=\"$USER_SECRET_KEY\"" "$COMPOSE_FILE"; then
-        echo -e "\e[33m[ПРОПУСК]\e[0m docker-compose.yml существует и ключ совпадает."
-    else
-        echo -e "\e[35m[ВНИМАНИЕ]\e[0m Ключ в файле отличается! Перезаписываю конфигурацию..."
-        sudo sed -i "s/SECRET_KEY=.*/SECRET_KEY=\"$USER_SECRET_KEY\"/" "$COMPOSE_FILE"
-    fi
+# Функция для получения текущего ключа из файла (вырезаем кавычки и пробелы)
+get_current_key() {
+    [ -f "$COMPOSE_FILE" ] && grep "SECRET_KEY=" "$COMPOSE_FILE" | cut -d'"' -f2
+}
+
+CURRENT_KEY=$(get_current_key)
+
+if [ -f "$COMPOSE_FILE" ] && [ "$CURRENT_KEY" == "$USER_SECRET_KEY" ]; then
+    echo -e "\e[33m[ПРОПУСК]\e[0m docker-compose.yml существует и ключ полностью совпадает."
 else
-    echo "Создание нового docker-compose.yml..."
+    if [ -f "$COMPOSE_FILE" ]; then
+        echo -e "\e[35m[ВНИМАНИЕ]\e[0m Ключ в файле отсутствует или отличается! Перезаписываю..."
+    else
+        echo "Создание нового docker-compose.yml..."
+    fi
+    
     sudo cat <<EOF > "$COMPOSE_FILE"
 services:
   remnanode:
@@ -89,7 +95,7 @@ fi
 
 # Проверка запущенного контейнера
 if sudo docker ps --format '{{.Names}}' | grep -q "^remnanode$"; then
-    echo -e "\e[33m[ПРОПУСК]\e[0m Контейнер remnanode уже запущен. Перезапуск для применения изменений (если были)..."
+    echo -e "\e[33m[ПРОПУСК]\e[0m Контейнер remnanode уже запущен. Обновление контейнера..."
     cd /opt/remnanode && sudo docker compose up -d
 else
     cd /opt/remnanode && sudo docker compose up -d
@@ -135,7 +141,6 @@ if [ -f "/opt/tblocker/config.yaml" ]; then
          echo -e "\e[33m[ПРОПУСК]\e[0m Конфиг Блокера уже содержит актуальный Webhook."
     else
          echo "Обновление Webhook в конфиге Блокера..."
-         # Очищаем старые настройки вебхука, если они были, и пишем новые
          sudo sed -i '/SendWebhook:/d;/WebhookURL:/d;/WebhookTemplate:/d;/WebhookHeaders:/d;/Authorization:/d;/Content-Type:/d' /opt/tblocker/config.yaml
          sudo cat <<EOF >> /opt/tblocker/config.yaml
 SendWebhook: true
@@ -168,5 +173,5 @@ EOF'
 fi
 
 echo -e "\n\e[32m=======================================\e[0m"
-echo -e "\e[32mПроверка и установка завершены!\e[0m"
+echo -e "\e[32mПроверка и установка завершены успешно!\e[0m"
 echo -e "\e[32m=======================================\e[0m"
