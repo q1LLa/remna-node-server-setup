@@ -40,36 +40,36 @@ echo -e "\n${CYAN}=== Начало настройки системы ===${RESET}
 
 # --- 1. Обновление и софт ---
 wait_for_apt
-echo -ne "${BLUE}[1/9]${RESET} Проверка базового ПО... "
+echo -e "${BLUE}[1/9] Проверка базового ПО...${RESET}"
 if dpkg -s nano fail2ban curl lsof &>/dev/null; then
-    echo -e "${YELLOW}Установлено${RESET}"
+    echo -e "${YELLOW}Базовый софт уже установлен.${RESET}"
 else
-    echo -e "${MAGENTA}Установка...${RESET}"
-    sudo apt-get update >/dev/null
-    sudo apt-get install -y nano fail2ban curl lsof >/dev/null
+    echo -e "${MAGENTA}Установка системных пакетов...${RESET}"
+    sudo apt-get update
+    sudo apt-get install -y nano fail2ban curl lsof
 fi
 
 # --- 2. BBR ---
-echo -ne "${BLUE}[2/9]${RESET} Проверка BBR... "
+echo -e "\n${BLUE}[2/9] Проверка BBR...${RESET}"
 if sysctl net.ipv4.tcp_congestion_control | grep -q "bbr"; then
-    echo -e "${YELLOW}Активен${RESET}"
+    echo -e "${YELLOW}BBR уже активен.${RESET}"
 else
-    echo -e "${MAGENTA}Настройка...${RESET}"
-    echo -e "net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr" | sudo tee -a /etc/sysctl.conf >/dev/null
-    sudo sysctl -p >/dev/null
+    echo -e "${MAGENTA}Включение BBR...${RESET}"
+    echo -e "net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr" | sudo tee -a /etc/sysctl.conf
+    sudo sysctl -p
 fi
 
 # --- 3. Docker ---
-echo -ne "${BLUE}[3/9]${RESET} Проверка Docker... "
+echo -e "\n${BLUE}[3/9] Проверка Docker...${RESET}"
 if command -v docker &> /dev/null; then
-    echo -e "${YELLOW}Установлен${RESET}"
+    echo -e "${YELLOW}Docker уже установлен.${RESET}"
 else
-    echo -e "${MAGENTA}Установка...${RESET}"
-    sudo curl -fsSL https://get.docker.com | sh >/dev/null
+    echo -e "${MAGENTA}Установка Docker...${RESET}"
+    sudo curl -fsSL https://get.docker.com | sh
 fi
 
 # --- 4. Настройка ноды ---
-echo -ne "${BLUE}[4/9]${RESET} Синхронизация ноды... "
+echo -e "\n${BLUE}[4/9] Настройка ноды и Docker Compose...${RESET}"
 sudo mkdir -p /var/log/remnanode /opt/remnanode
 COMPOSE_FILE="/opt/remnanode/docker-compose.yml"
 
@@ -80,9 +80,9 @@ get_current_key() {
 CURRENT_KEY=$(get_current_key)
 
 if [ -f "$COMPOSE_FILE" ] && [ "$CURRENT_KEY" == "$USER_SECRET_KEY" ]; then
-    echo -e "${YELLOW}Конфигурация актуальна${RESET}"
+    echo -e "${YELLOW}Конфигурация актуальна, ключ совпадает.${RESET}"
 else
-    echo -e "${MAGENTA}Обновление docker-compose.yml...${RESET}"
+    echo -e "${MAGENTA}Запись конфигурации в $COMPOSE_FILE...${RESET}"
     sudo cat <<EOF > "$COMPOSE_FILE"
 services:
   remnanode:
@@ -103,57 +103,52 @@ services:
 EOF
 fi
 
-# Запуск контейнера
-if sudo docker ps --format '{{.Names}}' | grep -q "^remnanode$"; then
-    echo -e "      ${CYAN}->${RESET} Контейнер запущен, пересборка (если были изменения)..."
-else
-    echo -e "      ${CYAN}->${RESET} Запуск контейнера..."
-fi
-cd /opt/remnanode && sudo docker compose up -d >/dev/null 2>&1
+echo -e "${CYAN}Запуск контейнера remnanode...${RESET}"
+cd /opt/remnanode && sudo docker compose up -d
 
 # --- 5. Настройка UFW ---
-echo -ne "${BLUE}[5/9]${RESET} Настройка Firewall (UFW)... "
+echo -e "\n${BLUE}[5/9] Настройка Firewall (UFW)...${RESET}"
 if sudo ufw status | grep -q "2222/tcp"; then
-    echo -e "${YELLOW}Правила уже применены${RESET}"
+    echo -e "${YELLOW}Правила UFW уже настроены.${RESET}"
 else
-    echo -e "${MAGENTA}Настройка портов и NAT...${RESET}"
-    sudo ufw allow 22,443,9443,40000,8443,4443,3444,2222,8388,3443,2443,1443/tcp >/dev/null
+    echo -e "${MAGENTA}Применение правил UFW и NAT...${RESET}"
+    sudo ufw allow 22,443,9443,40000,8443,4443,3444,2222,8388,3443,2443,1443/tcp
     sudo sed -i 's/#net\/ipv4\/ip_forward=1/net\/ipv4\/ip_forward=1/g' /etc/ufw/sysctl.conf
     grep -q "net/ipv4/ip_forward=1" /etc/ufw/sysctl.conf || echo 'net/ipv4/ip_forward=1' >> /etc/ufw/sysctl.conf
     if ! grep -q "PREROUTING -p tcp --dport 443" /etc/ufw/before.rules; then
         echo -e "\n*nat\n:PREROUTING ACCEPT [0:0]\n-A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 9443\nCOMMIT" | sudo tee -a /etc/ufw/before.rules > /dev/null
     fi
-    sudo ufw --force enable >/dev/null
+    sudo ufw --force enable
 fi
 
 # --- 6. Установка WARP ---
-echo -ne "${BLUE}[6/9]${RESET} Проверка Cloudflare WARP... "
+echo -e "\n${BLUE}[6/9] Проверка Cloudflare WARP...${RESET}"
 WARP_CHECK=$(curl --socks5-hostname 127.0.0.1:40000 -m 5 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep "warp=on" || true)
 if [ "$WARP_CHECK" == "warp=on" ]; then
-    echo -e "${YELLOW}Работает (Port 40000)${RESET}"
+    echo -e "${YELLOW}WARP активен на порту 40000.${RESET}"
 else
-    echo -e "${MAGENTA}Установка/Перезапуск...${RESET}"
+    echo -e "${MAGENTA}Установка или перезапуск WARP...${RESET}"
     cd ~
-    printf "1\n1\n40000\n" | bash <(curl -fsSL https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh) w >/dev/null 2>&1
+    printf "1\n1\n40000\n" | bash <(curl -fsSL https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh) w
 fi
 
 # --- 7. Установка Блокера ---
-echo -ne "${BLUE}[7/9]${RESET} Проверка T-Blocker... "
+echo -e "\n${BLUE}[7/9] Проверка T-Blocker...${RESET}"
 if systemctl is-active --quiet tblocker; then
-    echo -e "${YELLOW}Запущен${RESET}"
+    echo -e "${YELLOW}Служба tblocker уже запущена.${RESET}"
 else
-    echo -e "${MAGENTA}Установка...${RESET}"
+    echo -e "${MAGENTA}Запуск установки T-Blocker...${RESET}"
     wait_for_apt
-    printf "/var/log/remnanode/access.log\ny\n1\n" | bash <(curl -fsSL git.new/install) >/dev/null 2>&1
+    printf "/var/log/remnanode/access.log\ny\n1\n" | bash <(curl -fsSL git.new/install)
 fi
 
 # --- 8. Вебхук Блокера ---
-echo -ne "${BLUE}[8/9]${RESET} Проверка Webhook конфига... "
+echo -e "\n${BLUE}[8/9] Проверка конфигурации Webhook...${RESET}"
 if [ -f "/opt/tblocker/config.yaml" ]; then
     if grep -q "WebhookURL: \"$USER_WEBHOOK_URL\"" /opt/tblocker/config.yaml; then
-         echo -e "${YELLOW}Актуален${RESET}"
+         echo -e "${YELLOW}Webhook в конфиге актуален.${RESET}"
     else
-         echo -e "${MAGENTA}Обновление данных...${RESET}"
+         echo -e "${MAGENTA}Обновление данных Webhook в config.yaml...${RESET}"
          sudo sed -i '/SendWebhook:/d;/WebhookURL:/d;/WebhookTemplate:/d;/WebhookHeaders:/d;/Authorization:/d;/Content-Type:/d' /opt/tblocker/config.yaml
          sudo cat <<EOF >> /opt/tblocker/config.yaml
 SendWebhook: true
@@ -166,15 +161,15 @@ EOF
          sudo systemctl restart tblocker
     fi
 else
-    echo -e "${RED}Файл конфигурации не найден${RESET}"
+    echo -e "${RED}[ВНИМАНИЕ] Файл конфигурации /opt/tblocker/config.yaml не найден.${RESET}"
 fi
 
 # --- 9. Настройка Logrotate ---
-echo -ne "${BLUE}[9/9]${RESET} Проверка Logrotate... "
+echo -e "\n${BLUE}[9/9] Настройка Logrotate...${RESET}"
 if [ -f "/etc/logrotate.d/remnanode" ]; then
-    echo -e "${YELLOW}Настроен${RESET}"
+    echo -e "${YELLOW}Logrotate для ноды уже настроен.${RESET}"
 else
-    echo -e "${MAGENTA}Создание конфига...${RESET}"
+    echo -e "${MAGENTA}Создание конфигурации Logrotate...${RESET}"
     sudo bash -c 'cat > /etc/logrotate.d/remnanode <<EOF
 /var/log/remnanode/*.log {
     size 50M
