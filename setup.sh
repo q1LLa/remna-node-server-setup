@@ -3,14 +3,14 @@
 # Отключаем немедленный выход при ошибке
 set +e 
 
-# Цвета для вывода
-GREEN="\e[32m"
-YELLOW="\e[33m"
-BLUE="\e[34m"
-MAGENTA="\e[35m"
-CYAN="\e[36m"
-RED="\e[31m"
-RESET="\e[0m"
+# Цвета для вывода (универсальный формат \033)
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+RESET='\033[0m'
 
 # --- Функция ожидания APT ---
 wait_for_apt() {
@@ -40,7 +40,7 @@ echo -e "\n${CYAN}=== Начало настройки системы ===${RESET}
 
 # --- 1. Обновление и софт ---
 wait_for_apt
-echo -e "${BLUE}[1/9] Проверка базового ПО...${RESET}"
+echo -e "${BLUE}[1/10] Проверка базового ПО...${RESET}"
 if dpkg -s nano fail2ban curl lsof &>/dev/null; then
     echo -e "${YELLOW}Базовый софт уже установлен.${RESET}"
 else
@@ -49,18 +49,30 @@ else
     sudo apt-get install -y nano fail2ban curl lsof
 fi
 
-# --- 2. BBR ---
-echo -e "\n${BLUE}[2/9] Проверка BBR...${RESET}"
-if sysctl net.ipv4.tcp_congestion_control | grep -q "bbr"; then
-    echo -e "${YELLOW}BBR уже активен.${RESET}"
+# --- 2. Настройки VPN и BBR ---
+echo -e "\n${BLUE}[2/10] Оптимизация сетевых параметров ядра...${RESET}"
+if grep -q "nf_conntrack_max" /etc/sysctl.conf; then
+    echo -e "${YELLOW}Настройки VPN уже присутствуют в sysctl.conf.${RESET}"
 else
-    echo -e "${MAGENTA}Включение BBR...${RESET}"
-    echo -e "net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr" | sudo tee -a /etc/sysctl.conf
+    echo -e "${MAGENTA}Применение настроек (BBR, Conntrack, Buffers)...${RESET}"
+    sudo tee -a /etc/sysctl.conf <<EOF
+
+# --- Настройки для VPN (4 ядра, 8ГБ) ---
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.netfilter.nf_conntrack_max = 500000
+net.core.rmem_max = 33554432
+net.core.wmem_max = 33554432
+net.core.netdev_max_backlog = 10000
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_max_syn_backlog = 20000
+EOF
     sudo sysctl -p
 fi
 
 # --- 3. Docker ---
-echo -e "\n${BLUE}[3/9] Проверка Docker...${RESET}"
+echo -e "\n${BLUE}[3/10] Проверка Docker...${RESET}"
 if command -v docker &> /dev/null; then
     echo -e "${YELLOW}Docker уже установлен.${RESET}"
 else
@@ -69,7 +81,7 @@ else
 fi
 
 # --- 4. Настройка ноды ---
-echo -e "\n${BLUE}[4/9] Настройка ноды и Docker Compose...${RESET}"
+echo -e "\n${BLUE}[4/10] Настройка ноды и Docker Compose...${RESET}"
 sudo mkdir -p /var/log/remnanode /opt/remnanode
 COMPOSE_FILE="/opt/remnanode/docker-compose.yml"
 
@@ -107,14 +119,22 @@ echo -e "${CYAN}Запуск контейнера remnanode...${RESET}"
 cd /opt/remnanode && sudo docker compose up -d
 
 # --- 5. Настройка UFW ---
-echo -e "\n${BLUE}[5/9] Настройка Firewall (UFW)...${RESET}"
+echo -e "\n${BLUE}[5/10] Настройка Firewall (UFW)...${RESET}"
+if ! command -v ufw &> /dev/null; then
+    echo -e "${MAGENTA}UFW не найден. Установка...${RESET}"
+    sudo apt-get update && sudo apt-get install -y ufw
+fi
+
 if sudo ufw status | grep -q "2222/tcp"; then
     echo -e "${YELLOW}Правила UFW уже настроены.${RESET}"
 else
     echo -e "${MAGENTA}Применение правил UFW и NAT...${RESET}"
-    sudo ufw allow 22,443,9443,40000,8443,4443,3444,2222,8388,3443,2443,1443/tcp
+    # Открываем порты (включая новые: 10970, 18182, 22230, 10120)
+    sudo ufw allow 22,443,9443,40000,8443,4443,3444,2222,8388,3443,2443,1443,10970,18182,22230,10120/tcp
+    
     sudo sed -i 's/#net\/ipv4\/ip_forward=1/net\/ipv4\/ip_forward=1/g' /etc/ufw/sysctl.conf
     grep -q "net/ipv4/ip_forward=1" /etc/ufw/sysctl.conf || echo 'net/ipv4/ip_forward=1' >> /etc/ufw/sysctl.conf
+    
     if ! grep -q "PREROUTING -p tcp --dport 443" /etc/ufw/before.rules; then
         echo -e "\n*nat\n:PREROUTING ACCEPT [0:0]\n-A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 9443\nCOMMIT" | sudo tee -a /etc/ufw/before.rules > /dev/null
     fi
@@ -122,7 +142,7 @@ else
 fi
 
 # --- 6. Установка WARP ---
-echo -e "\n${BLUE}[6/9] Проверка Cloudflare WARP...${RESET}"
+echo -e "\n${BLUE}[6/10] Проверка Cloudflare WARP...${RESET}"
 WARP_CHECK=$(curl --socks5-hostname 127.0.0.1:40000 -m 5 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep "warp=on" || true)
 if [ "$WARP_CHECK" == "warp=on" ]; then
     echo -e "${YELLOW}WARP активен на порту 40000.${RESET}"
@@ -133,7 +153,7 @@ else
 fi
 
 # --- 7. Установка Блокера ---
-echo -e "\n${BLUE}[7/9] Проверка T-Blocker...${RESET}"
+echo -e "\n${BLUE}[7/10] Проверка T-Blocker...${RESET}"
 if systemctl is-active --quiet tblocker; then
     echo -e "${YELLOW}Служба tblocker уже запущена.${RESET}"
 else
@@ -143,7 +163,7 @@ else
 fi
 
 # --- 8. Вебхук Блокера ---
-echo -e "\n${BLUE}[8/9] Проверка конфигурации Webhook...${RESET}"
+echo -e "\n${BLUE}[8/10] Проверка конфигурации Webhook...${RESET}"
 if [ -f "/opt/tblocker/config.yaml" ]; then
     if grep -q "WebhookURL: \"$USER_WEBHOOK_URL\"" /opt/tblocker/config.yaml; then
          echo -e "${YELLOW}Webhook в конфиге актуален.${RESET}"
@@ -165,7 +185,7 @@ else
 fi
 
 # --- 9. Настройка Logrotate ---
-echo -e "\n${BLUE}[9/9] Настройка Logrotate...${RESET}"
+echo -e "\n${BLUE}[9/10] Настройка Logrotate...${RESET}"
 if [ -f "/etc/logrotate.d/remnanode" ]; then
     echo -e "${YELLOW}Logrotate для ноды уже настроен.${RESET}"
 else
@@ -182,6 +202,32 @@ else
 EOF'
 fi
 
+# --- 10. Автоматизация мониторинга WARP ---
+echo -e "\n${BLUE}[10/10] Настройка авто-мониторинга WARP...${RESET}"
+MONITOR_PATH="/opt/remnanode/warp_monitor.sh"
+
+# Создание скрипта мониторинга
+cat <<'EOF' > "$MONITOR_PATH"
+#!/bin/bash
+# Проверка через SOCKS5 порт 40000
+WARP_CHECK=$(curl -s --socks5-hostname 127.0.0.1:40000 -m 8 https://www.cloudflare.com/cdn-cgi/trace | grep "warp=on" || true)
+
+if [ "$WARP_CHECK" == "warp=on" ]; then
+    echo "$(date): WARP работает стабильно." >> /var/log/warp_monitor.log
+else
+    echo "$(date): WARP упал! Запуск восстановления..." >> /var/log/warp_monitor.log
+    printf "1\n1\n40000\n" | bash <(curl -fsSL https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh) w >> /var/log/warp_monitor.log 2>&1
+fi
+EOF
+
+chmod +x "$MONITOR_PATH"
+
+# Добавление в cron, если задачи еще нет
+CRON_JOB="*/15 * * * * /bin/bash $MONITOR_PATH"
+(crontab -l 2>/dev/null | grep -Fq "$MONITOR_PATH") || (crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
+
+echo -e "${YELLOW}Мониторинг установлен в /opt/remnanode/ и добавлен в cron (15 мин).${RESET}"
+
 echo -e "\n${GREEN}=======================================${RESET}"
-echo -e "${GREEN}   Настройка завершена успешно!${RESET}"
+echo -e "${GREEN}    Настройка завершена успешно!${RESET}"
 echo -e "${GREEN}=======================================${RESET}\n"
