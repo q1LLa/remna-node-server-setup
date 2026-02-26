@@ -134,12 +134,12 @@ sudo bash -c 'cat > /etc/logrotate.d/remnanode <<EOF
 }
 EOF'
 
-# --- 9. WARP Native (ФИНАЛЬНЫЙ ШАГ) ---
-echo -e "\n${BLUE}[9/9] Установка WARP Native (Интерактивно)...${RESET}"
-
-# Запуск инсталлера
-bash <(curl -fsSL https://raw.githubusercontent.com/distillium/warp-native/main/install.sh)
-
+# --- ФИНАЛ ОСНОВНОГО СКРИПТА ---
 echo -e "\n${GREEN}=======================================${RESET}"
-echo -e "${GREEN}    Все задачи выполнены!${RESET}"
+echo -e "${GREEN}    Базовая настройка завершена!${RESET}"
 echo -e "${GREEN}=======================================${RESET}\n"
+
+# --- 9. WARP Native (ФИНАЛЬНЫЙ ШАГ - Интерактивно) ---
+echo -e "${BLUE}[9/9] Запуск установки WARP Native...${RESET}"
+echo -e "${YELLOW}(После завершения установки WARP настройка будет полностью закончена)${RESET}"
+bash <(curl -fsSL https://raw.githubusercontent.com/distillium/warp-native/main/install.sh)
