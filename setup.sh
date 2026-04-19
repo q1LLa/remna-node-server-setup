@@ -73,6 +73,8 @@ services:
       - "/var/log/remnanode:/var/log/remnanode"
     network_mode: host
     restart: always
+    cap_add:
+      - NET_ADMIN
     environment:
       - NODE_PORT=2222
       - SECRET_KEY="$USER_SECRET_KEY"
