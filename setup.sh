@@ -81,12 +81,20 @@ cd /opt/remnanode && sudo docker compose up -d
 echo -e "\n${BLUE}[5/7] Настройка UFW...${RESET}"
 sudo apt-get install -y ufw
 
+# Сброс настроек по умолчанию (безопасность)
+sudo ufw default deny incoming > /dev/null
+sudo ufw default allow outgoing > /dev/null
+
 # Список всех нужных портов
 PORTS=(22 443 9443 40000 8443 4443 3444 2222 8388 3443 2443 1443 10970 18182 22230 10120)
 
 for port in "${PORTS[@]}"; do
     sudo ufw allow "$port"/tcp > /dev/null
 done
+
+# Включение UFW (флаг --force нужен, чтобы скрипт не задавал интерактивный вопрос)
+echo -e "${YELLOW}[ИНФО]${RESET} Включение файрвола UFW..."
+sudo ufw --force enable
 
 # --- 6. Logrotate ---
 echo -e "\n${BLUE}[6/7] Настройка Logrotate...${RESET}"
