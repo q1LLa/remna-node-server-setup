@@ -25,22 +25,18 @@ wait_for_apt() {
 echo -e "${CYAN}=== Сбор конфигурационных данных ===${RESET}"
 echo -ne "${GREEN}[?]${RESET} Введите SECRET_KEY: "
 read -r USER_SECRET_KEY
-echo -ne "${GREEN}[?]${RESET} Введите URL Webhook: "
-read -r USER_WEBHOOK_URL
-echo -ne "${GREEN}[?]${RESET} Введите TOKEN: "
-read -r USER_TOKEN
 
 echo -e "\n${CYAN}=== Начало настройки системы ===${RESET}"
 
 # --- 1. Базовое ПО и исправление зависимостей ---
 wait_for_apt
-echo -e "${BLUE}[1/9] Проверка системных пакетов...${RESET}"
+echo -e "${BLUE}[1/7] Проверка системных пакетов...${RESET}"
 sudo apt-get update
 sudo apt --fix-broken install -y
 sudo apt-get install -y nano fail2ban curl lsof
 
 # --- 2. Оптимизация сетевых параметров ядра ---
-echo -e "\n${BLUE}[2/9] Применение сетевых настроек (BBR, Conntrack)...${RESET}"
+echo -e "\n${BLUE}[2/7] Применение сетевых настроек (BBR, Conntrack)...${RESET}"
 sudo bash -c 'cat >> /etc/sysctl.conf <<EOF
 
 # Настройки для VPN ноды
@@ -57,11 +53,11 @@ EOF'
 sudo sysctl -p
 
 # --- 3. Docker ---
-echo -e "\n${BLUE}[3/9] Проверка Docker...${RESET}"
+echo -e "\n${BLUE}[3/7] Проверка Docker...${RESET}"
 command -v docker &> /dev/null || sudo curl -fsSL https://get.docker.com | sh
 
 # --- 4. Настройка ноды Remnanode ---
-echo -e "\n${BLUE}[4/9] Настройка контейнера ноды...${RESET}"
+echo -e "\n${BLUE}[4/7] Настройка контейнера ноды...${RESET}"
 sudo mkdir -p /var/log/remnanode /opt/remnanode
 COMPOSE_FILE="/opt/remnanode/docker-compose.yml"
 sudo cat <<EOF > "$COMPOSE_FILE"
@@ -82,7 +78,7 @@ EOF
 cd /opt/remnanode && sudo docker compose up -d
 
 # --- 5. Настройка Firewall (UFW) через ЦИКЛ ---
-echo -e "\n${BLUE}[5/9] Настройка UFW...${RESET}"
+echo -e "\n${BLUE}[5/7] Настройка UFW...${RESET}"
 sudo apt-get install -y ufw
 
 # Список всех нужных портов
@@ -91,40 +87,9 @@ PORTS=(22 443 9443 40000 8443 4443 3444 2222 8388 3443 2443 1443 10970 18182 222
 for port in "${PORTS[@]}"; do
     sudo ufw allow "$port"/tcp > /dev/null
 done
-sudo ufw allow 51820/udp > /dev/null # Порт для WireGuard/WARP
 
-# Настройка форвардинга и NAT
-sudo sed -i 's/#net\/ipv4\/ip_forward=1/net\/ipv4\/ip_forward=1/g' /etc/ufw/sysctl.conf
-grep -q "net/ipv4/ip_forward=1" /etc/ufw/sysctl.conf || echo 'net/ipv4/ip_forward=1' | sudo tee -a /etc/ufw/sysctl.conf
-
-if ! grep -q "PREROUTING -p tcp --dport 443" /etc/ufw/before.rules; then
-    echo -e "\n*nat\n:PREROUTING ACCEPT [0:0]\n-A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 9443\nCOMMIT" | sudo tee -a /etc/ufw/before.rules > /dev/null
-fi
-sudo ufw --force enable
-
-# --- 6. Установка T-Blocker ---
-echo -e "\n${BLUE}[6/9] Установка T-Blocker...${RESET}"
-if ! systemctl is-active --quiet tblocker; then
-    printf "/var/log/remnanode/access.log\ny\n1\n" | bash <(curl -fsSL git.new/install)
-fi
-
-# --- 7. Настройка Webhook для Блокера ---
-echo -e "\n${BLUE}[7/9] Настройка Webhook...${RESET}"
-if [ -f "/opt/tblocker/config.yaml" ]; then
-    sudo sed -i '/SendWebhook:/d;/WebhookURL:/d;/WebhookTemplate:/d;/WebhookHeaders:/d;/Authorization:/d;/Content-Type:/d' /opt/tblocker/config.yaml
-    sudo bash -c "cat <<EOF >> /opt/tblocker/config.yaml
-SendWebhook: true
-WebhookURL: \"$USER_WEBHOOK_URL\"
-WebhookTemplate: '{\"username\":\"%s\",\"ip\":\"%s\",\"server\":\"%s\",\"action\":\"%s\",\"duration\":%d,\"timestamp\":\"%s\"}'
-WebhookHeaders:
-  Authorization: \"Bearer $USER_TOKEN\"
-  Content-Type: \"application/json\"
-EOF"
-    sudo systemctl restart tblocker
-fi
-
-# --- 8. Logrotate ---
-echo -e "\n${BLUE}[8/9] Настройка Logrotate...${RESET}"
+# --- 6. Logrotate ---
+echo -e "\n${BLUE}[6/7] Настройка Logrotate...${RESET}"
 sudo bash -c 'cat > /etc/logrotate.d/remnanode <<EOF
 /var/log/remnanode/*.log {
     size 50M
@@ -141,7 +106,7 @@ echo -e "\n${GREEN}=======================================${RESET}"
 echo -e "${GREEN}    Базовая настройка завершена!${RESET}"
 echo -e "${GREEN}=======================================${RESET}\n"
 
-# --- 9. WARP Native (ФИНАЛЬНЫЙ ШАГ - Интерактивно) ---
-echo -e "${BLUE}[9/9] Запуск установки WARP Native...${RESET}"
+# --- 7. WARP Native (ФИНАЛЬНЫЙ ШАГ - Интерактивно) ---
+echo -e "${BLUE}[7/7] Запуск установки WARP Native...${RESET}"
 echo -e "${YELLOW}(После завершения установки WARP настройка будет полностью закончена)${RESET}"
 bash <(curl -fsSL https://raw.githubusercontent.com/distillium/warp-native/main/install.sh)
